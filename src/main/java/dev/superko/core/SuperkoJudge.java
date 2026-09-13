@@ -13,6 +13,11 @@ public final class SuperkoJudge {
     /** Global switch, flipped by the config / command. */
     public static volatile boolean enabled = true;
 
+    /** Cumulative counters for /superko status diagnostics. */
+    public static volatile long chainsStarted = 0;
+    public static volatile long judgedSetBlocks = 0;
+    public static volatile long rejectedSetBlocks = 0;
+
     private static final ThreadLocal<ArrayDeque<Scope>> CHAINS = ThreadLocal.withInitial(ArrayDeque::new);
     private static final ThreadLocal<ArrayDeque<Pending>> PENDINGS = ThreadLocal.withInitial(ArrayDeque::new);
     private static final ThreadLocal<CtxStack> CONTEXTS = ThreadLocal.withInitial(CtxStack::new);
@@ -86,6 +91,7 @@ public final class SuperkoJudge {
             CONTEXTS.get().reset();
         }
         stack.push(new Scope(type, origin));
+        chainsStarted++;
     }
 
     public static void endChain() {
@@ -137,16 +143,20 @@ public final class SuperkoJudge {
         if (t.bypass) {
             return false; // caps blown: pass through unrecorded and unjudged
         }
+        judgedSetBlocks++;
         int ctx = CONTEXTS.get().top();
         if ((flags & 1) == 0 && (flags & 16) != 0) {
             // Q8: flag sets like 2|16 (structure placement) emit no neighbor/shape updates,
             // so they cannot form an instantaneous loop. Record them for snapshot
             // integrity, but never reject based on them.
+            SuperkoLog.debug(trace(pos, oldId, newId, ctx, flags, t, "record-only (no update flags)"));
             PENDINGS.get().push(new Pending(pos, newId, flags, ctx));
             return false;
         }
         long actionKey = UpdateContext.packActionKey(ctx, flags, newId);
         if (t.isRejected(pos, actionKey)) {
+            rejectedSetBlocks++;
+            SuperkoLog.debug(trace(pos, oldId, newId, ctx, flags, t, "reject (rejected list)"));
             return true; // already reported when it was first rejected
         }
         long candHash = t.rollingHash ^ ChainTracker.hashOf(pos, t.touched.get(pos)) ^ ChainTracker.hashOf(pos, newId);
@@ -164,10 +174,13 @@ public final class SuperkoJudge {
             // different actions on an identical configuration may still diverge (§2.3).
             if (snap.actorPos == pos && snap.ctx == ctx && snap.flags == flags) {
                 t.addRejected(pos, actionKey);
+                rejectedSetBlocks++;
+                SuperkoLog.debug(trace(pos, oldId, newId, ctx, flags, t, "reject (superko, moment #" + i + ")"));
                 logReject(t, pos, newId, ctx, flags, i);
                 return true;
             }
         }
+        SuperkoLog.debug(trace(pos, oldId, newId, ctx, flags, t, "pass, recorded"));
         PENDINGS.get().push(new Pending(pos, newId, flags, ctx));
         return false;
     }
@@ -197,6 +210,13 @@ public final class SuperkoJudge {
     }
 
     // ---- helpers ----
+
+    private static String trace(long pos, int oldId, int newId, int ctx, int flags, ChainTracker t, String decision) {
+        return "[Superko][debug] setBlock (" + unpackX(pos) + ", " + unpackY(pos) + ", " + unpackZ(pos) + ")"
+                + " " + oldId + "->" + newId
+                + " ctx=" + SuperkoLog.contextName(ctx) + " flags=" + flags
+                + " during " + t.type.label + " chain: " + decision;
+    }
 
     private static void logReject(ChainTracker t, long pos, int newId, int ctx, int flags, int moment) {
         SuperkoLog.intervention("[Superko] Rejected setBlock at (" + unpackX(pos) + ", " + unpackY(pos) + ", " + unpackZ(pos) + ")"

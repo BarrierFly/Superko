@@ -74,6 +74,7 @@ public final class SuperkoConfig {
         return switch (s == null ? "" : s.toLowerCase(Locale.ROOT)) {
             case "none" -> SuperkoLog.LEVEL_NONE;
             case "broadcast" -> SuperkoLog.LEVEL_BROADCAST;
+            case "debug" -> SuperkoLog.LEVEL_DEBUG;
             default -> SuperkoLog.LEVEL_CONSOLE;
         };
     }

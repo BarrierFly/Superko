@@ -10,6 +10,8 @@ public final class SuperkoLog {
     public static final int LEVEL_NONE = 0;
     public static final int LEVEL_CONSOLE = 1;
     public static final int LEVEL_BROADCAST = 2;
+    /** Console-only per-setBlock judgment trace, for diagnosing why a loop is or is not caught. */
+    public static final int LEVEL_DEBUG = 3;
 
     public interface Sink {
         void console(String message);
@@ -57,6 +59,13 @@ public final class SuperkoLog {
         }
         if (lvl >= LEVEL_BROADCAST) {
             sink.broadcast(message);
+        }
+    }
+
+    /** Per-setBlock judgment trace; only emitted at the debug level, console only. */
+    public static void debug(String message) {
+        if (logLevel >= LEVEL_DEBUG) {
+            sink.console(message);
         }
     }
 

@@ -39,8 +39,8 @@ After a rejection, further identical attempts from that block in the same chain 
 | Command | Effect |
 |---|---|
 | `/superko on` / `off` | enable / disable |
-| `/superko status` | show current state |
-| `/superko log <none\|console\|broadcast>` | logging of rejected actions (default: `console`) |
+| `/superko status` | show current state and counters (chains started / judged / rejected setBlocks) |
+| `/superko log <none\|console\|broadcast\|debug>` | logging of rejected actions (default: `console`); `debug` additionally traces every judged `setBlock` to the console — use it to check whether the mod sees your loop at all |
 | `/superko exempt add\|remove <block>` / `list` | blocks that are never judged |
 
 Settings persist in `config/superko.json`. Default: **enabled**, console logging, no exempt blocks.
@@ -100,8 +100,8 @@ Settings persist in `config/superko.json`. Default: **enabled**, console logging
 | 命令 | 作用 |
 |---|---|
 | `/superko on` / `off` | 开启 / 关闭 |
-| `/superko status` | 查看当前状态 |
-| `/superko log <none\|console\|broadcast>` | 干预日志级别（默认 `console` 仅控制台） |
+| `/superko status` | 查看当前状态与计数（链数 / 判定的 setBlock 数 / 拒绝数） |
+| `/superko log <none\|console\|broadcast\|debug>` | 干预日志级别（默认 `console` 仅控制台）；`debug` 会把每个进入判定的 `setBlock` 逐条打到控制台——用来确认 mod 到底看没看见你的回路 |
 | `/superko exempt add\|remove <方块>` / `list` | 永不判定的方块白名单 |
 
 配置保存在 `config/superko.json`。默认：**开启**、仅控制台日志、白名单为空。

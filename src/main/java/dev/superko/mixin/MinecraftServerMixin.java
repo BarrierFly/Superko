@@ -20,7 +20,13 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  */
 @Mixin(MinecraftServer.class)
 public abstract class MinecraftServerMixin {
-    @Inject(method = "<init>", at = @At("TAIL"))
+    private static final String CONSTRUCTOR =
+            "<init>(Ljava/lang/Thread;Lnet/minecraft/world/level/storage/LevelStorageSource$LevelStorageAccess;"
+                    + "Lnet/minecraft/server/packs/repository/PackRepository;Lnet/minecraft/server/WorldStem;"
+                    + "Ljava/net/Proxy;Lcom/mojang/datafixers/DataFixer;Lnet/minecraft/server/Services;"
+                    + "Lnet/minecraft/server/level/progress/ChunkProgressListenerFactory;)V";
+
+    @Inject(method = CONSTRUCTOR, at = @At("TAIL"))
     private void superko$bindServer(Thread serverThread, LevelStorageSource.LevelStorageAccess storageSource,
                                     PackRepository packRepository, WorldStem worldStem, Proxy proxy,
                                     DataFixer fixerUpper, Services services,

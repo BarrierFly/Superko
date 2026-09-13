@@ -2,6 +2,7 @@ package dev.superko.config;
 
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
+import dev.superko.core.SuperkoJudge;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.SharedSuggestionProvider;
 import net.minecraft.commands.Commands;
@@ -39,17 +40,22 @@ public final class SuperkoCommands {
                             + "enabled=" + c.enabled
                             + ", logLevel=" + c.logLevel
                             + ", exemptBlocks=" + SuperkoConfig.exemptList()), false);
+                    ctx.getSource().sendSuccess(Component.literal(PREFIX
+                            + "chains started=" + SuperkoJudge.chainsStarted
+                            + ", judged setBlocks=" + SuperkoJudge.judgedSetBlocks
+                            + ", rejected setBlocks=" + SuperkoJudge.rejectedSetBlocks), false);
                     return 1;
                 }))
                 .then(Commands.literal("log")
                         .then(Commands.argument("level", StringArgumentType.word())
                                 .suggests((c, b) -> SharedSuggestionProvider.suggest(
-                                        List.of("none", "console", "broadcast"), b))
+                                        List.of("none", "console", "broadcast", "debug"), b))
                                 .executes(ctx -> {
                                     String level = StringArgumentType.getString(ctx, "level").toLowerCase(java.util.Locale.ROOT);
-                                    if (!level.equals("none") && !level.equals("console") && !level.equals("broadcast")) {
+                                    if (!level.equals("none") && !level.equals("console")
+                                            && !level.equals("broadcast") && !level.equals("debug")) {
                                         ctx.getSource().sendFailure(Component.literal(
-                                                PREFIX + "unknown log level '" + level + "' (none|console|broadcast)"));
+                                                PREFIX + "unknown log level '" + level + "' (none|console|broadcast|debug)"));
                                         return 0;
                                     }
                                     SuperkoConfig.setLogLevel(level);
