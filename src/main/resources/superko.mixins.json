@@ -5,8 +5,7 @@
   "minVersion": "0.8",
   "mixins": [
     "LevelMixin_setBlock",
-    "LevelChunkLevelAccessor",
-    "LevelChunkMixin_chain",
+    "LevelMixin_blockEntities",
     "ServerLevelMixin_chain",
     "ServerLevelMixin_entityTick",
     "ServerGamePacketListenerMixin_chain",

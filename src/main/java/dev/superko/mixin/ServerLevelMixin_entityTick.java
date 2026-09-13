@@ -2,6 +2,7 @@ package dev.superko.mixin;
 
 import dev.superko.core.ChainType;
 import dev.superko.core.SuperkoJudge;
+import dev.superko.hooks.SuperkoHooks;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.Entity;
 import org.spongepowered.asm.mixin.Mixin;
@@ -16,13 +17,9 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  */
 @Mixin(ServerLevel.class)
 public abstract class ServerLevelMixin_entityTick {
-    private String superko$origin() {
-        return ((ServerLevel) (Object) this).dimension().location().toString();
-    }
-
     @Inject(method = "tickNonPassenger", at = @At("HEAD"))
     private void superko$beginEntity(Entity entity, CallbackInfo ci) {
-        SuperkoJudge.beginChain(ChainType.ENTITY, superko$origin());
+        SuperkoJudge.beginChain(ChainType.ENTITY, SuperkoHooks.originOf((ServerLevel) (Object) this));
     }
 
     @Inject(method = "tickNonPassenger", at = @At("RETURN"))
@@ -32,7 +29,7 @@ public abstract class ServerLevelMixin_entityTick {
 
     @Inject(method = "tickPassenger", at = @At("HEAD"))
     private void superko$beginPassenger(Entity ridingEntity, Entity passengerEntity, CallbackInfo ci) {
-        SuperkoJudge.beginChain(ChainType.ENTITY_PASSENGER, superko$origin());
+        SuperkoJudge.beginChain(ChainType.ENTITY_PASSENGER, SuperkoHooks.originOf((ServerLevel) (Object) this));
     }
 
     @Inject(method = "tickPassenger", at = @At("RETURN"))
