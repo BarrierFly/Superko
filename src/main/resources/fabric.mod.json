@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "id": "superko",
+  "version": "${version}",
+  "name": "Superko (禁全同)",
+  "description": "Rejects block updates that would put an instantaneous update chain back into a previously seen (global-sameness) configuration, instead of crashing (pre-1.19) or silently skipping updates (1.19+).",
+  "authors": [],
+  "contact": {},
+  "license": "WTFPL",
+  "environment": "*",
+  "entrypoints": {
+    "main": [
+      "dev.superko.SuperkoMod"
+    ]
+  },
+  "mixins": [
+    "superko.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=0.14.21",
+    "minecraft": "=1.19.4",
+    "java": ">=17"
+  }
+}
