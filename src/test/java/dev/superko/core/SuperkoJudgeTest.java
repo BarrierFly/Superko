@@ -6,13 +6,12 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Pure-JVM tests of the judgment core (test plan §9.1). The hooks layer is stubbed out by
- * driving {@link SuperkoJudge} directly with packed positions and state ids.
+ * driving {@link SuperkoJudge} directly with packed positions and state ids: a successful
+ * change is "judge at HEAD, then afterSetBlock at TAIL".
  */
 class SuperkoJudgeTest {
     private static final int FLAGS = 3;      // UPDATE_NEIGHBORS | UPDATE_CLIENTS
@@ -33,16 +32,10 @@ class SuperkoJudgeTest {
         SuperkoJudge.endChain();
     }
 
-    /** Judges an attempt; when not rejected, confirms the change landed. */
+    /** Judges an attempt; when not rejected, confirms the change landed (the TAIL hook). */
     private static void setBlock(long pos, int oldId, int newId, int flags) {
         assertFalse(SuperkoJudge.beforeSetBlock(pos, oldId, newId, flags), "expected the change to be allowed");
-        commitPending();
-    }
-
-    private static void commitPending() {
-        SuperkoJudge.Pending p = SuperkoJudge.popPending();
-        assertNotNull(p, "expected a pending record");
-        SuperkoJudge.commitPending(p, p.pos, p.newStateId);
+        SuperkoJudge.afterSetBlock(pos, newId, flags);
     }
 
     private static long pack(int x, int y, int z) {
@@ -61,14 +54,16 @@ class SuperkoJudgeTest {
     @Test
     void plainCallsOutsideChainsAreNeverJudged() {
         assertFalse(SuperkoJudge.beforeSetBlock(P, 0, 1, FLAGS));
-        assertNull(SuperkoJudge.popPending());
+        SuperkoJudge.afterSetBlock(P, 1, FLAGS); // must be a silent no-op
+        assertFalse(SuperkoJudge.beforeSetBlock(P, 0, 1, FLAGS)); // still nothing recorded
     }
 
     @Test
     void sameStateNoopIsIgnored() {
         SuperkoJudge.beginChain(ChainType.SCHEDULED_TICK, "test");
+        // old == new: not an action; in vanilla this call early-returns before TAIL,
+        // so nothing is judged and nothing is recorded
         assertFalse(SuperkoJudge.beforeSetBlock(P, 1, 1, FLAGS));
-        assertNull(SuperkoJudge.popPending());
         SuperkoJudge.endChain();
     }
 
@@ -81,7 +76,6 @@ class SuperkoJudgeTest {
         assertTrue(SuperkoJudge.beforeSetBlock(P, 0, 1, FLAGS));
         // rejected list short-circuits any further identical attempts
         assertTrue(SuperkoJudge.beforeSetBlock(P, 0, 1, FLAGS));
-        assertNull(SuperkoJudge.popPending());
         SuperkoJudge.endChain();
     }
 
@@ -106,7 +100,7 @@ class SuperkoJudgeTest {
         setBlock(P, 1, 0, FLAGS); // {P=0, Q=1}
         // P: 0->1 would give {P=1, Q=1}; the only earlier moment with P=1 also had no Q
         assertFalse(SuperkoJudge.beforeSetBlock(P, 0, 1, FLAGS));
-        commitPending();          // {P=1, Q=1} is now moment 3
+        SuperkoJudge.afterSetBlock(P, 1, FLAGS); // {P=1, Q=1} is now moment 3
         // P: 1->0 would give {P=0, Q=1} = moment 2, produced by the same action -> superko
         assertTrue(SuperkoJudge.beforeSetBlock(P, 1, 0, FLAGS));
         SuperkoJudge.endChain();
@@ -129,10 +123,10 @@ class SuperkoJudgeTest {
     void noUpdateFlagsAreRecordedButNeverRejected() {
         SuperkoJudge.beginChain(ChainType.SCHEDULED_TICK, "test");
         assertFalse(SuperkoJudge.beforeSetBlock(P, 0, 1, NO_UPDATE));
-        commitPending();          // {P=1} produced by a no-update action
+        SuperkoJudge.afterSetBlock(P, 1, NO_UPDATE); // {P=1} produced by a no-update action
         setBlock(P, 1, 0, FLAGS); // {P=0}
         assertFalse(SuperkoJudge.beforeSetBlock(P, 0, 1, NO_UPDATE)); // never rejected (Q8)
-        commitPending();          // {P=1} again
+        SuperkoJudge.afterSetBlock(P, 1, NO_UPDATE); // {P=1} again
         // {P=0} equals moment 1, produced by the same with-update action -> superko
         assertTrue(SuperkoJudge.beforeSetBlock(P, 1, 0, FLAGS));
         SuperkoJudge.endChain();
@@ -162,11 +156,13 @@ class SuperkoJudgeTest {
     }
 
     @Test
-    void stalePendingsAreDroppedOnCommit() {
+    void recordingUpdatesTheTouchedMap() {
         SuperkoJudge.beginChain(ChainType.SCHEDULED_TICK, "test");
-        SuperkoJudge.Pending stale = new SuperkoJudge.Pending(P, 7, FLAGS, UpdateContext.SELF);
-        SuperkoJudge.commitPending(stale, Q, 7); // identity mismatch -> dropped
         setBlock(P, 0, 1, FLAGS);
+        setBlock(Q, 0, 1, FLAGS);
+        setBlock(Q, 1, 0, FLAGS);
         SuperkoJudge.endChain();
+        assertEquals(2, SuperkoJudge.lastChainTouched);
+        assertEquals(3, SuperkoJudge.lastChainHistory);
     }
 }

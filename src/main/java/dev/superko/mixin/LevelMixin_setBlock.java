@@ -33,6 +33,6 @@ public abstract class LevelMixin_setBlock {
     @Inject(method = SET_BLOCK, at = @At("TAIL"))
     private void superko$record(BlockPos pos, BlockState newState, int flags, int recursionLeft,
                                 CallbackInfoReturnable<Boolean> cir) {
-        SuperkoHooks.recordSetBlock((Level) (Object) this, pos, newState);
+        SuperkoHooks.recordSetBlock((Level) (Object) this, pos, newState, flags);
     }
 }

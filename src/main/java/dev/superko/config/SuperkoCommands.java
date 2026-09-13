@@ -44,6 +44,10 @@ public final class SuperkoCommands {
                             + "chains started=" + SuperkoJudge.chainsStarted
                             + ", judged setBlocks=" + SuperkoJudge.judgedSetBlocks
                             + ", rejected setBlocks=" + SuperkoJudge.rejectedSetBlocks), false);
+                    ctx.getSource().sendSuccess(Component.literal(PREFIX
+                            + "last ended chain: touched=" + SuperkoJudge.lastChainTouched
+                            + ", snapshots=" + SuperkoJudge.lastChainHistory
+                            + " (these grow while a chain records changes)"), false);
                     return 1;
                 }))
                 .then(Commands.literal("log")

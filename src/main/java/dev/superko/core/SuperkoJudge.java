@@ -17,9 +17,11 @@ public final class SuperkoJudge {
     public static volatile long chainsStarted = 0;
     public static volatile long judgedSetBlocks = 0;
     public static volatile long rejectedSetBlocks = 0;
+    /** Touched/snapshot counts of the most recently ended chain (diagnostics). */
+    public static volatile int lastChainTouched = 0;
+    public static volatile int lastChainHistory = 0;
 
     private static final ThreadLocal<ArrayDeque<Scope>> CHAINS = ThreadLocal.withInitial(ArrayDeque::new);
-    private static final ThreadLocal<ArrayDeque<Pending>> PENDINGS = ThreadLocal.withInitial(ArrayDeque::new);
     private static final ThreadLocal<CtxStack> CONTEXTS = ThreadLocal.withInitial(CtxStack::new);
 
     private SuperkoJudge() {
@@ -33,24 +35,6 @@ public final class SuperkoJudge {
         Scope(ChainType type, String origin) {
             this.type = type;
             this.origin = origin;
-        }
-    }
-
-    /**
-     * A setBlock attempt that passed judgment and whose result is not yet known. Kept
-     * alongside the call and committed once the change is confirmed to have landed.
-     */
-    public static final class Pending {
-        public final long pos;
-        public final int newStateId;
-        public final int flags;
-        final int ctx;
-
-        Pending(long pos, int newStateId, int flags, int ctx) {
-            this.pos = pos;
-            this.newStateId = newStateId;
-            this.flags = flags;
-            this.ctx = ctx;
         }
     }
 
@@ -87,7 +71,6 @@ public final class SuperkoJudge {
             // A previous chain start was aborted before its RETURN (e.g. an update
             // suppression exception unwound through it) — discard the stale state.
             stack.clear();
-            PENDINGS.get().clear();
             CONTEXTS.get().reset();
         }
         stack.push(new Scope(type, origin));
@@ -97,9 +80,12 @@ public final class SuperkoJudge {
     public static void endChain() {
         ArrayDeque<Scope> stack = CHAINS.get();
         if (!stack.isEmpty()) {
-            stack.pop();
+            Scope scope = stack.pop();
+            if (scope.tracker != null) {
+                lastChainTouched = scope.tracker.touched.size();
+                lastChainHistory = scope.tracker.history.size();
+            }
         }
-        PENDINGS.get().clear();
         CONTEXTS.get().reset();
     }
 
@@ -147,16 +133,15 @@ public final class SuperkoJudge {
         int ctx = CONTEXTS.get().top();
         if ((flags & 1) == 0 && (flags & 16) != 0) {
             // Q8: flag sets like 2|16 (structure placement) emit no neighbor/shape updates,
-            // so they cannot form an instantaneous loop. Record them for snapshot
-            // integrity, but never reject based on them.
-            SuperkoLog.debug(trace(pos, oldId, newId, ctx, flags, t, "record-only (no update flags)"));
-            PENDINGS.get().push(new Pending(pos, newId, flags, ctx));
+            // so they cannot form an instantaneous loop. They are still recorded (by the
+            // TAIL hook), but never rejected.
+            SuperkoLog.debug(trace(pos, oldId, newId, ctx, flags, t, "judge: record-only (no update flags)"));
             return false;
         }
         long actionKey = UpdateContext.packActionKey(ctx, flags, newId);
         if (t.isRejected(pos, actionKey)) {
             rejectedSetBlocks++;
-            SuperkoLog.debug(trace(pos, oldId, newId, ctx, flags, t, "reject (rejected list)"));
+            SuperkoLog.debug(trace(pos, oldId, newId, ctx, flags, t, "judge: reject (rejected list)"));
             return true; // already reported when it was first rejected
         }
         long candHash = t.rollingHash ^ ChainTracker.hashOf(pos, t.touched.get(pos)) ^ ChainTracker.hashOf(pos, newId);
@@ -175,38 +160,36 @@ public final class SuperkoJudge {
             if (snap.actorPos == pos && snap.ctx == ctx && snap.flags == flags) {
                 t.addRejected(pos, actionKey);
                 rejectedSetBlocks++;
-                SuperkoLog.debug(trace(pos, oldId, newId, ctx, flags, t, "reject (superko, moment #" + i + ")"));
+                SuperkoLog.debug(trace(pos, oldId, newId, ctx, flags, t, "judge: reject (superko, moment #" + i + ")"));
                 logReject(t, pos, newId, ctx, flags, i);
                 return true;
             }
         }
-        SuperkoLog.debug(trace(pos, oldId, newId, ctx, flags, t, "pass, recorded"));
-        PENDINGS.get().push(new Pending(pos, newId, flags, ctx));
+        SuperkoLog.debug(trace(pos, oldId, newId, ctx, flags, t, "judge: pass"));
         return false;
     }
 
     /**
-     * Pops the pending record of a completed setBlock call, or null when the call was not
-     * judged (outside a chain, no-op, exempt, ...).
+     * Called at the TAIL of a successful server-side setBlock: the hook has verified that
+     * the requested state actually landed in the world. This replaces the old pending-
+     * stack design, which silently failed to record in production; here there is no
+     * cross-call state to corrupt — pos/flags come from the call itself and the recorded
+     * state is the state that is now really in the world.
      */
-    public static Pending popPending() {
-        ArrayDeque<Pending> q = PENDINGS.get();
-        return q.isEmpty() ? null : q.pop();
-    }
-
-    /**
-     * Commits a confirmed change (the hook verified the world state equals the requested
-     * one). Stale pendings from aborted calls are dropped by the pos/id identity check.
-     */
-    public static void commitPending(Pending p, long pos, int newStateId) {
-        if (p.pos != pos || p.newStateId != newStateId) {
-            return;
-        }
+    public static void afterSetBlock(long pos, int newStateId, int flags) {
         Scope scope = CHAINS.get().peek();
         if (scope == null || scope.tracker == null) {
+            return; // change happened outside a judged chain
+        }
+        ChainTracker t = scope.tracker;
+        if (t.bypass) {
             return;
         }
-        scope.tracker.record(p.pos, p.newStateId, p.ctx, p.flags);
+        int ctx = CONTEXTS.get().top();
+        SuperkoLog.debug("[Superko][debug] record (" + unpackX(pos) + ", " + unpackY(pos) + ", " + unpackZ(pos) + ")"
+                + " -> " + newStateId + " ctx=" + SuperkoLog.contextName(ctx) + " flags=" + flags
+                + " during " + t.type.label + " chain (touched=" + t.touched.size() + ", history=" + t.history.size() + ")");
+        t.record(pos, newStateId, ctx, flags);
     }
 
     // ---- helpers ----

@@ -38,19 +38,20 @@ public final class SuperkoHooks {
     }
 
     /**
-     * Confirmation for the TAIL of the same method: records the change only when it
-     * actually landed in the world (i.e. the setBlock did not fail).
+     * Confirmation for the TAIL of the same method: records the change when it actually
+     * landed in the world. Everything needed (pos, state, flags) comes from this call
+     * itself, so there is no cross-call state that can go stale.
      */
-    public static void recordSetBlock(Level level, BlockPos pos, BlockState newState) {
-        if (level.isClientSide) {
+    public static void recordSetBlock(Level level, BlockPos pos, BlockState newState, int flags) {
+        if (level.isClientSide || !SuperkoJudge.enabled) {
             return;
         }
-        SuperkoJudge.Pending p = SuperkoJudge.popPending();
-        if (p == null) {
+        if (SuperkoConfig.isExempt(newState.getBlock())) {
             return;
         }
-        if (p.pos == pos.asLong() && level.getBlockState(pos) == newState) {
-            SuperkoJudge.commitPending(p, p.pos, p.newStateId);
+        if (level.getBlockState(pos) != newState) {
+            return; // the change did not land (failed call / early return)
         }
+        SuperkoJudge.afterSetBlock(pos.asLong(), Block.getId(newState), flags);
     }
 }
