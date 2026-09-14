@@ -17,6 +17,7 @@ public final class SuperkoJudge {
     public static volatile long chainsStarted = 0;
     public static volatile long judgedSetBlocks = 0;
     public static volatile long rejectedSetBlocks = 0;
+    public static volatile long recordedSetBlocks = 0;
     /** Touched/snapshot counts of the most recently ended chain (diagnostics). */
     public static volatile int lastChainTouched = 0;
     public static volatile int lastChainHistory = 0;
@@ -170,13 +171,15 @@ public final class SuperkoJudge {
     }
 
     /**
-     * Called at the TAIL of a successful server-side setBlock: the hook has verified that
-     * the requested state actually landed in the world. This replaces the old pending-
-     * stack design, which silently failed to record in production; here there is no
-     * cross-call state to corrupt — pos/flags come from the call itself and the recorded
-     * state is the state that is now really in the world.
+     * Called by the write hook right after a judged setBlock landed in the world. The
+     * context is taken from the HEAD-phase marker (see the hooks layer), not from the
+     * current tag stack, to stay immune to post-write tag changes.
      */
     public static void afterSetBlock(long pos, int newStateId, int flags) {
+        afterSetBlock(pos, newStateId, flags, CONTEXTS.get().top());
+    }
+
+    public static void afterSetBlock(long pos, int newStateId, int flags, int ctx) {
         Scope scope = CHAINS.get().peek();
         if (scope == null || scope.tracker == null) {
             return; // change happened outside a judged chain
@@ -185,7 +188,7 @@ public final class SuperkoJudge {
         if (t.bypass) {
             return;
         }
-        int ctx = CONTEXTS.get().top();
+        recordedSetBlocks++;
         SuperkoLog.debug("[Superko][debug] record (" + unpackX(pos) + ", " + unpackY(pos) + ", " + unpackZ(pos) + ")"
                 + " -> " + newStateId + " ctx=" + SuperkoLog.contextName(ctx) + " flags=" + flags
                 + " during " + t.type.label + " chain (touched=" + t.touched.size() + ", history=" + t.history.size() + ")");

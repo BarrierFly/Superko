@@ -16,6 +16,21 @@ public final class SuperkoHooks {
     private SuperkoHooks() {
     }
 
+    /**
+     * Per-call marker handed from the HEAD judge to the write hook. A single slot is
+     * enough: the recorded write happens before any nested setBlock can run, and the
+     * marker is cleared at the start of every judge call, so stale markers cannot leak.
+     */
+    private static final class WriteMark {
+        boolean judged;
+        long pos;
+        int newStateId;
+        int flags;
+        int ctx;
+    }
+
+    private static final ThreadLocal<WriteMark> WRITE = ThreadLocal.withInitial(WriteMark::new);
+
     /** Log origin label for a server level, shared by the chain-boundary mixins. */
     public static String originOf(ServerLevel level) {
         return level.dimension().location().toString();
@@ -27,6 +42,8 @@ public final class SuperkoHooks {
      * @return true when the change must be rejected (the mixin cancels the setBlock)
      */
     public static boolean judgeSetBlock(Level level, BlockPos pos, BlockState newState, int flags) {
+        WriteMark mark = WRITE.get();
+        mark.judged = false;
         if (level.isClientSide || !SuperkoJudge.enabled) {
             return false;
         }
@@ -34,24 +51,30 @@ public final class SuperkoHooks {
         if (SuperkoConfig.isExempt(oldState.getBlock()) || SuperkoConfig.isExempt(newState.getBlock())) {
             return false;
         }
-        return SuperkoJudge.beforeSetBlock(pos.asLong(), Block.getId(oldState), Block.getId(newState), flags);
+        boolean reject = SuperkoJudge.beforeSetBlock(pos.asLong(), Block.getId(oldState), Block.getId(newState), flags);
+        if (!reject) {
+            mark.judged = true;
+            mark.pos = pos.asLong();
+            mark.newStateId = Block.getId(newState);
+            mark.flags = flags;
+            mark.ctx = SuperkoJudge.currentContext();
+        }
+        return reject;
     }
 
     /**
-     * Confirmation for the TAIL of the same method: records the change when it actually
-     * landed in the world. Everything needed (pos, state, flags) comes from this call
-     * itself, so there is no cross-call state that can go stale.
+     * Called by the mixin at the {@code getBlockState(pos)} call inside
+     * {@code Level.setBlock}, which vanilla only reaches on the success path (right after
+     * the chunk write, before the update dispatch). Records the actual world state for
+     * every judged change.
      */
-    public static void recordSetBlock(Level level, BlockPos pos, BlockState newState, int flags) {
-        if (level.isClientSide || !SuperkoJudge.enabled) {
+    public static void recordJudgedWrite(Level level, BlockPos pos) {
+        WriteMark mark = WRITE.get();
+        if (!mark.judged) {
             return;
         }
-        if (SuperkoConfig.isExempt(newState.getBlock())) {
-            return;
-        }
-        if (level.getBlockState(pos) != newState) {
-            return; // the change did not land (failed call / early return)
-        }
-        SuperkoJudge.afterSetBlock(pos.asLong(), Block.getId(newState), flags);
+        mark.judged = false;
+        BlockState actual = level.getBlockState(pos);
+        SuperkoJudge.afterSetBlock(mark.pos, Block.getId(actual), mark.flags, mark.ctx);
     }
 }

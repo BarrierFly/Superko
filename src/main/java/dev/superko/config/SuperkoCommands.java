@@ -43,6 +43,7 @@ public final class SuperkoCommands {
                     ctx.getSource().sendSuccess(Component.literal(PREFIX
                             + "chains started=" + SuperkoJudge.chainsStarted
                             + ", judged setBlocks=" + SuperkoJudge.judgedSetBlocks
+                            + ", recorded setBlocks=" + SuperkoJudge.recordedSetBlocks
                             + ", rejected setBlocks=" + SuperkoJudge.rejectedSetBlocks), false);
                     ctx.getSource().sendSuccess(Component.literal(PREFIX
                             + "last ended chain: touched=" + SuperkoJudge.lastChainTouched
