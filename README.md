@@ -22,12 +22,19 @@ After a rejection, further identical attempts from that block in the same chain 
 
 **One chain each:** per handled player packet · per executed scheduled tick (`tickBlock`/`tickFluid`) · per executed block event · per block entity per tick · per entity per tick (passenger ticks nest inside their vehicle's chain).
 
-**Not touched:** anything with a delay — scheduled tick queues, block event queues, clocks spread over multiple ticks. Delayed loops are normal redstone behavior and stay exactly vanilla.
+**Not touched:** anything with a delay — scheduled tick queues, block event queues (pistons, observers), clocks spread over multiple ticks. Delayed loops are normal redstone behavior and stay exactly vanilla.
+
+## How it works (internals)
+
+- **Judgment** happens at the HEAD of `Level.setBlock(BlockPos, BlockState, int, int)` and cancels the call there — a rejected change is written to no chunk and therefore emits no updates at all.
+- **Recording** happens at the `getBlockState(pos)` call vanilla performs right after the chunk write on the success path (before any update dispatch), using a plain composable `@Inject` — no redirects, no conflicts with other mods' `setBlock` hooks. Rejected calls never reach it.
+- **Update contexts** (self / neighbor / shape-face) are tagged on the vanilla updater classes — both the 1.19+ manual stack (`CollectingNeighborUpdater`) and the instant/recursive one (`InstantNeighborUpdater`, also used client-side and by TIS-Addition's `instantBlockUpdaterReintroduced`).
+- **Snapshots** are compared via a Zobrist-style rolling hash first; only on a hash hit is the full map compared. History entries store the action that produced them, which is what makes "same configuration, same action" decidable.
 
 ## Known limitations (read this)
 
 - **Strict rule.** Like in Go, a chain that *ever* revisits a configuration gets clipped, even if it would have diverged one beat later. In rare cases this can stop a contraption that vanilla would have let converge.
-- **Performance caps.** 4096 touched blocks and 4096 snapshots per chain; beyond that the rest of the chain is passed through unjudged (with a console warning). Very large loop structures may not be protected, and update-storm-scale chains are beyond this mod.
+- **Performance caps.** 4096 touched blocks and 4096 snapshots per chain (plus a total snapshot-entry budget); beyond that the rest of the chain is passed through unjudged (with a console warning). Very large loop structures may not be protected, and update-storm-scale chains are beyond this mod.
 - A rejected `setBlock` returns `false`, exactly like a failed placement.
 - Only block states are compared; entity changes are not part of the snapshot.
 - `setBlock` calls with no update flags (e.g. structure placement, flags `2|16`) are recorded but never rejected — they cannot cascade.
@@ -39,21 +46,41 @@ After a rejection, further identical attempts from that block in the same chain 
 | Command | Effect |
 |---|---|
 | `/superko on` / `off` | enable / disable |
-| `/superko status` | show current state and counters (chains started / judged / rejected setBlocks) |
-| `/superko log <none\|console\|broadcast\|debug>` | logging of rejected actions (default: `console`); `debug` additionally traces every judged `setBlock` to the console — use it to check whether the mod sees your loop at all |
+| `/superko status` | current state, plus counters: chains started / judged / recorded / rejected setBlocks, and the last ended chain's touched/snapshot counts (they grow while a chain records) |
+| `/superko log <none\|console\|broadcast\|debug>` | rejected actions go to the server log (default `console`); `broadcast` also sends them to online operators; `debug` additionally traces every judged and recorded `setBlock` |
 | `/superko exempt add\|remove <block>` / `list` | blocks that are never judged |
 
 Settings persist in `config/superko.json`. Default: **enabled**, console logging, no exempt blocks.
+
+### Reading the log
+
+A rejection looks like this:
+
+```
+[Superko] Rejected setBlock at (-88, 56, 213) [minecraft:overworld] during player packet chain:
+ctx=self, flags=11, newStateId=4272 — would recreate the configuration of moment #37 (same action);
+superko (global sameness) detected.
+```
+
+At the `debug` level every judged change is traced (`setBlock (x,y,z) old->new ctx=... flags=... during ... chain: judge: pass / judge: reject (superko, moment #N) / judge: record-only (no update flags)`) together with the corresponding `record (x,y,z) -> stateId ...` line. Quick check that the mod sees your contraption at all: `/superko status` and watch `judged/recorded` grow while it runs.
 
 ## Compatibility
 
 - Server-side only. Clients do not need it; single player (integrated server) works.
 - **Carpet-TIS-Addition**: fully compatible with `instantBlockUpdaterReintroduced` — enabling it is *recommended*, since superko judges at `Level.setBlock` (which both the vanilla manual stack and the instant updater use) and tags update contexts on both generations of updater. `yeetUpdateSuppressionCrash` and similar update-suppression fixes are orthogonal and can be combined freely.
+- **carpet**: coexists with carpet's own `Level.setBlock` mixins (e.g. `fillUpdates`) — superko only uses injectable hook points, never redirects.
 - No dependency on Fabric API or carpet.
 
 ## Building
 
-`gradle build` (Gradle 9+, JDK 17+ toolchain not required for building; targets Java 17). Version management is set up with [Stonecutter](https://stonecutter.kikugie.dev/); 1.19.4 is the active node, with 1.16.5/1.17.1/1.18.2 reserved.
+Requires Gradle 9+ (the wrapper is included; its distribution URL points at the Tencent mirror — switch `gradle/wrapper/gradle-wrapper.properties` back to `services.gradle.org` if you build elsewhere). No JDK 17 toolchain needed for building; the mod targets Java 17.
+
+```
+gradlew build     # jar: versions/1.19.4/build/libs/superko-<version>.jar
+gradlew test      # pure-JVM unit tests of the judgment core
+```
+
+Version management is set up with [Stonecutter](https://stonecutter.kikugie.dev/); 1.19.4 is the active node, with 1.16.5/1.17.1/1.18.2 reserved (the core is version-independent; only the mixins are version-specific).
 
 ## License
 
@@ -83,12 +110,19 @@ Settings persist in `config/superko.json`. Default: **enabled**, console logging
 
 **链的划分（每类各一条链）：** 每个玩家包的处理 · 每条计划刻执行（`tickBlock`/`tickFluid`）· 每条方块事件执行 · 每个方块实体每刻 tick · 每个实体每刻 tick（乘客实体嵌套在载具链内）。
 
-**不干预：** 一切跨刻的延迟行为——计划刻队列、方块事件队列、跨多个游戏刻的红石钟。有延时的循环是正常现象，与原版完全一致。
+**不干预：** 一切跨刻的延迟行为——计划刻队列、方块事件队列（活塞、观察者）、跨多个游戏刻的红石钟。有延时的循环是正常现象，与原版完全一致。
+
+## 内部实现
+
+- **判定**挂在 `Level.setBlock(BlockPos, BlockState, int, int)` 的 HEAD 并在此取消——被拒绝的改动不会写入任何区块，因此其更新天然不会放出。
+- **记录**挂在原版在区块写入成功之后、更新派发之前的那次 `getBlockState(pos)` 调用上，用的是可叠加的普通 `@Inject`——不用 @Redirect，不会和其它 mod 的 setBlock 钩子冲突；被拒绝的调用根本走不到这里。
+- **更新上下文**（自身逻辑/邻居更新/形状更新含面）打标在原版更新器类上——1.19+ 的手工栈（`CollectingNeighborUpdater`）与即时递归更新器（`InstantNeighborUpdater`，客户端以及 TIS-Addition 的 `instantBlockUpdaterReintroduced` 都在用）两代全覆盖。
+- **快照比较**先用 Zobrist 风格滚动哈希排除，命中才做全量比对；每条历史快照都记录产生它的动作，"同构型 + 同动作"因此可判定。
 
 ## 已知限制（务必阅读）
 
 - **严格判定。** 与围棋规则一样：链内只要出现过全同即拒绝该次动作，即使之后本可发散。极端情况下可能干预原版本可正常收敛的装置。
-- **性能上限。** 每条链最多记录 4096 个触及方块与 4096 个快照；超限后本链放行不再判定（控制台警告一次）。超大死循环结构可能防不住，更新量极大时本 Mod 自身也可能先出问题。
+- **性能上限。** 每条链最多记录 4096 个触及方块与 4096 个快照（另有快照总条目预算）；超限后本链放行不再判定（控制台警告一次）。超大死循环结构可能防不住，更新量极大时本 Mod 自身也可能先出问题。
 - 被拒绝的 `setBlock` 返回 `false`，与放置失败的表现一致。
 - 只比较方块状态；实体的创建/移除/更改不进快照。
 - 不带更新 flag 的 `setBlock`（如结构放置，flags `2|16`）只记录、不拒绝——它们无法形成瞬时循环。
@@ -100,21 +134,41 @@ Settings persist in `config/superko.json`. Default: **enabled**, console logging
 | 命令 | 作用 |
 |---|---|
 | `/superko on` / `off` | 开启 / 关闭 |
-| `/superko status` | 查看当前状态与计数（链数 / 判定的 setBlock 数 / 拒绝数） |
-| `/superko log <none\|console\|broadcast\|debug>` | 干预日志级别（默认 `console` 仅控制台）；`debug` 会把每个进入判定的 `setBlock` 逐条打到控制台——用来确认 mod 到底看没看见你的回路 |
+| `/superko status` | 当前状态与计数：链数 / 判定数 / 落盘数 / 拒绝数，以及上一条链的触及方块与快照数（链在记录时它们会增长） |
+| `/superko log <none\|console\|broadcast\|debug>` | 拦截记录写入服务器日志（默认 `console` 仅控制台）；`broadcast` 同时发给在线 OP；`debug` 会把每个判定与落盘的 `setBlock` 逐条跟踪 |
 | `/superko exempt add\|remove <方块>` / `list` | 永不判定的方块白名单 |
 
 配置保存在 `config/superko.json`。默认：**开启**、仅控制台日志、白名单为空。
+
+### 怎么读日志
+
+一次拦截长这样：
+
+```
+[Superko] Rejected setBlock at (-88, 56, 213) [minecraft:overworld] during player packet chain:
+ctx=self, flags=11, newStateId=4272 — would recreate the configuration of moment #37 (same action);
+superko (global sameness) detected.
+```
+
+`debug` 级别下，每个判定的改动都会逐条跟踪（`setBlock (x,y,z) old->new ctx=... flags=... during ... chain: judge: pass / judge: reject (superko, moment #N) / judge: record-only (no update flags)`），并伴随对应的 `record (x,y,z) -> stateId ...` 行。想快速确认 mod 是否"看见"了你的装置：跑 `/superko status`，看 `judged/recorded` 是否随装置运行增长。
 
 ## 兼容性
 
 - 仅服务端逻辑，客户端无需安装；单机（集成服务器）同样生效。
 - **Carpet-TIS-Addition**：与 `instantBlockUpdaterReintroduced` 完全兼容，并且**推荐配合开启**——本 Mod 在 `Level.setBlock`（两代更新器的共同汇点）判定，并为两代更新器都打更新上下文标记。`yeetUpdateSuppressionCrash` 等更新抑制修复与本 Mod 目标正交，可随意叠加。
+- **carpet**：与 carpet 自身对 `Level.setBlock` 的 mixin（如 `fillUpdates`）共存——本 Mod 只用可叠加的注入点，从不用 @Redirect。
 - 不依赖 Fabric API 与 carpet。
 
 ## 构建
 
-`gradle build`（Gradle 9+，JDK 17+ 即可构建，目标 Java 17）。多版本管理基于 [Stonecutter](https://stonecutter.kikugie.dev/)：当前启用 1.19.4 节点，1.16.5/1.17.1/1.18.2 为预留。
+需要 Gradle 9+（已带 wrapper；发行包地址用的是腾讯镜像——在其它网络环境构建时把 `gradle/wrapper/gradle-wrapper.properties` 换回 `services.gradle.org` 即可）。构建无需 JDK 17 工具链，mod 目标为 Java 17。
+
+```
+gradlew build     # 产物：versions/1.19.4/build/libs/superko-<version>.jar
+gradlew test      # 判定核心的纯 JVM 单元测试
+```
+
+多版本管理基于 [Stonecutter](https://stonecutter.kikugie.dev/)：当前启用 1.19.4 节点，1.16.5/1.17.1/1.18.2 为预留（core 与版本无关，只有 mixin 是版本相关的）。
 
 ## 许可证
 

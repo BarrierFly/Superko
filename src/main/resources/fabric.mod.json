@@ -3,7 +3,7 @@
   "id": "superko",
   "version": "${version}",
   "name": "Superko (禁全同)",
-  "description": "Rejects block updates that would put an instantaneous update chain back into a previously seen (global-sameness) configuration, instead of crashing (pre-1.19) or silently skipping updates (1.19+).",
+  "description": "Rejects block updates that would put an instantaneous update chain back into a previously seen configuration (global sameness / superko), instead of crashing (pre-1.19) or silently skipping updates (1.19+). 在瞬时更新链复现先前构型（全同）时拒绝该次改动，替代 1.19 前的崩服与 1.19+ 的静默跳略。",
   "authors": [],
   "contact": {},
   "license": "WTFPL",
