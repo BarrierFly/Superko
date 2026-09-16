@@ -18,6 +18,8 @@ public final class SuperkoJudge {
     public static volatile long judgedSetBlocks = 0;
     public static volatile long rejectedSetBlocks = 0;
     public static volatile long recordedSetBlocks = 0;
+    /** Chains that were passed through unjudged because they exceeded a cost cap. */
+    public static volatile long bypassedChains = 0;
     /** Touched/snapshot counts of the most recently ended chain (diagnostics). */
     public static volatile int lastChainTouched = 0;
     public static volatile int lastChainHistory = 0;

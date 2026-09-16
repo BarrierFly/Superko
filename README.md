@@ -34,7 +34,7 @@ After a rejection, further identical attempts from that block in the same chain 
 ## Known limitations (read this)
 
 - **Strict rule.** Like in Go, a chain that *ever* revisits a configuration gets clipped, even if it would have diverged one beat later. In rare cases this can stop a contraption that vanilla would have let converge.
-- **Performance caps.** 65536 touched blocks and 65536 recorded moments per chain; beyond that the rest of the chain is passed through unjudged (with a console warning). Very large loop structures may still not be protected, and update-storm-scale chains are beyond this mod.
+- **Performance caps.** 65536 touched blocks and 65536 recorded moments per chain, plus a budget for full configuration comparisons; beyond any of them the rest of the chain is passed through unjudged (with a console warning, and `/superko status` counts "chains given up"). Very large loop structures may still not be protected, and update-storm-scale chains are beyond this mod.
 - A rejected `setBlock` returns `false`, exactly like a failed placement.
 - Only block states are compared; entity changes are not part of the snapshot.
 - `setBlock` calls with no update flags (e.g. structure placement, flags `2|16`) are recorded but never rejected — they cannot cascade.
@@ -122,7 +122,7 @@ Version management is set up with [Stonecutter](https://stonecutter.kikugie.dev/
 ## 已知限制（务必阅读）
 
 - **严格判定。** 与围棋规则一样：链内只要出现过全同即拒绝该次动作，即使之后本可发散。极端情况下可能干预原版本可正常收敛的装置。
-- **性能上限。** 每条链最多记录 65536 个触及方块与 65536 个时刻；超限后本链放行不再判定（控制台警告一次）。超大死循环结构仍可能防不住，更新量极大时本 Mod 自身也可能先出问题。
+- **性能上限。** 每条链最多记录 65536 个触及方块与 65536 个时刻，另有全量构型比对的预算；任一超限后本链放行不再判定（控制台警告一次，`/superko status` 里的 "chains given up" 计数可见）。超大死循环结构仍可能防不住，更新量极大时本 Mod 自身也可能先出问题。
 - 被拒绝的 `setBlock` 返回 `false`，与放置失败的表现一致。
 - 只比较方块状态；实体的创建/移除/更改不进快照。
 - 不带更新 flag 的 `setBlock`（如结构放置，flags `2|16`）只记录、不拒绝——它们无法形成瞬时循环。

@@ -35,6 +35,14 @@ final class ChainTracker {
      */
     static int maxTouched = 65536;
     static int maxHistory = 65536;
+    /**
+     * Budget for full configuration comparisons (counted in touched-key comparisons).
+     * A configuration that keeps recurring with a never-matching action forces a
+     * comparison on every change; without a budget that corner costs O(touched) per change.
+     * A real loop matches on the first comparison, so this is orders of magnitude above
+     * anything a genuine contraption needs.
+     */
+    static int maxVerifications = 1 << 20;
 
     /**
      * Value returned by {@code touched.get} for positions that are not (yet) touched. State
@@ -67,6 +75,7 @@ final class ChainTracker {
     private final Long2ObjectOpenHashMap<LongOpenHashSet> rejected = new Long2ObjectOpenHashMap<>();
 
     private int step = 0;
+    private long verificationChecks = 0;
     private boolean hasRejections = false;
     boolean bypass = false;
 
@@ -99,15 +108,7 @@ final class ChainTracker {
         }
         boolean overCap = momentStep.size() >= maxHistory || touched.size() > maxTouched;
         if (overCap) {
-            bypass = true;
-            long now = System.nanoTime();
-            if (now - lastCapWarnNanos > 5_000_000_000L) {
-                lastCapWarnNanos = now;
-                SuperkoLog.warn("[Superko] Chain cap exceeded (" + type.label
-                        + (origin.isEmpty() ? "" : " in " + origin)
-                        + ", " + touched.size() + " touched blocks, " + momentStep.size() + " moments); "
-                        + "the rest of this chain is passed through unjudged.");
-            }
+            enterBypass(touched.size() + " touched blocks, " + momentStep.size() + " moments");
             return;
         }
         int moment = momentStep.size();
@@ -159,6 +160,11 @@ final class ChainTracker {
             if (momentSize.getInt(moment) != candidateSize) {
                 continue;
             }
+            if (verificationChecks + touched.size() > maxVerifications) {
+                enterBypass("verification budget (" + verificationChecks + " key comparisons)");
+                return NO_MOMENT;
+            }
+            verificationChecks += touched.size();
             if (!matchesMoment(moment, pos, newId)) {
                 continue;
             }
@@ -169,6 +175,19 @@ final class ChainTracker {
             }
         }
         return NO_MOMENT;
+    }
+
+    /** Marks the chain as unprotected and warns (rate limited across chains). */
+    private void enterBypass(String detail) {
+        bypass = true;
+        SuperkoJudge.bypassedChains++;
+        long now = System.nanoTime();
+        if (now - lastCapWarnNanos > 5_000_000_000L) {
+            lastCapWarnNanos = now;
+            SuperkoLog.warn("[Superko] Chain too expensive to judge (" + type.label
+                    + (origin.isEmpty() ? "" : " in " + origin) + ", " + detail + "); "
+                    + "the rest of this chain is passed through unjudged.");
+        }
     }
 
     /**

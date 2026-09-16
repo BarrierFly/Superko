@@ -1,5 +1,6 @@
 package dev.superko.core;
 
+import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -163,5 +164,54 @@ class SuperkoJudgeTest {
         SuperkoJudge.endChain();
         assertEquals(2, SuperkoJudge.lastChainTouched);
         assertEquals(3, SuperkoJudge.lastChainHistory);
+    }
+
+    /**
+     * A configuration that keeps recurring with a never-matching action forces a full
+     * comparison on every change. The verification budget must cut the chain off (and say
+     * so) instead of letting it cost O(touched) per change indefinitely.
+     */
+    @Test
+    void verificationBudgetStopsPathologicalChains() {
+        int savedBudget = ChainTracker.maxVerifications;
+        long savedBypasses = SuperkoJudge.bypassedChains;
+        ChainTracker.maxVerifications = 20_000;
+        try {
+            SuperkoJudge.beginChain(ChainType.SCHEDULED_TICK, "budget");
+            Long2IntOpenHashMap world = new Long2IntOpenHashMap();
+            world.defaultReturnValue(-1);
+            for (int round = 0; round < 60; round++) {
+                for (int i = 0; i < 128; i++) {
+                    long pos = pack(i, 64, 0);
+                    int old = world.get(pos);
+                    if (old < 0) {
+                        old = 0;
+                    }
+                    int newId = round % 2;
+                    // config recurs every 2 rounds; ctx/flags only every 104 rounds
+                    int ctx = 3 + (round % 13);
+                    int flags = 3 | ((round % 8) << 5);
+                    SuperkoJudge.pushContext(ctx);
+                    boolean reject = SuperkoJudge.beforeSetBlock(pos, old, newId, flags);
+                    if (reject || old == newId) {
+                        SuperkoJudge.popContext();
+                    } else {
+                        SuperkoJudge.afterSetBlock(pos, newId, flags);
+                        SuperkoJudge.popContext();
+                        world.put(pos, newId);
+                    }
+                    assertFalse(reject, "no change may be rejected in this trace");
+                }
+            }
+            assertTrue(SuperkoJudge.bypassedChains > savedBypasses,
+                    "the verification budget must have been hit");
+            // once the chain is given up, further changes are passed through unjudged
+            long pos = pack(0, 64, 0);
+            int value = world.get(pos);
+            assertFalse(SuperkoJudge.beforeSetBlock(pos, value, 1 - value, FLAGS));
+            SuperkoJudge.endChain();
+        } finally {
+            ChainTracker.maxVerifications = savedBudget;
+        }
     }
 }
