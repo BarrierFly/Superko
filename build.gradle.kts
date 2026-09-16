@@ -59,4 +59,7 @@ tasks.processResources {
 
 tasks.test {
     useJUnitPlatform()
+    // The agreement tests drive the naive specification oracle, which keeps a full
+    // configuration copy per moment on purpose.
+    maxHeapSize = "1g"
 }

@@ -84,7 +84,7 @@ public final class SuperkoJudge {
             Scope scope = stack.pop();
             if (scope.tracker != null) {
                 lastChainTouched = scope.tracker.touched.size();
-                lastChainHistory = scope.tracker.history.size();
+                lastChainHistory = scope.tracker.momentCount();
             }
         }
         CONTEXTS.get().reset();
@@ -135,38 +135,37 @@ public final class SuperkoJudge {
         if ((flags & 1) == 0 && (flags & 16) != 0) {
             // Q8: flag sets like 2|16 (structure placement) emit no neighbor/shape updates,
             // so they cannot form an instantaneous loop. They are still recorded (by the
-            // TAIL hook), but never rejected.
-            SuperkoLog.debug(trace(pos, oldId, newId, ctx, flags, t, "judge: record-only (no update flags)"));
+            // write hook), but never rejected.
+            if (SuperkoLog.isDebug()) {
+                SuperkoLog.debug(trace(pos, oldId, newId, ctx, flags, t, "judge: record-only (no update flags)"));
+            }
             return false;
         }
         long actionKey = UpdateContext.packActionKey(ctx, flags, newId);
         if (t.isRejected(pos, actionKey)) {
             rejectedSetBlocks++;
-            SuperkoLog.debug(trace(pos, oldId, newId, ctx, flags, t, "judge: reject (rejected list)"));
+            if (SuperkoLog.isDebug()) {
+                SuperkoLog.debug(trace(pos, oldId, newId, ctx, flags, t, "judge: reject (rejected list)"));
+            }
             return true; // already reported when it was first rejected
         }
-        long candHash = t.rollingHash ^ ChainTracker.hashOf(pos, t.touched.get(pos)) ^ ChainTracker.hashOf(pos, newId);
-        int historySize = t.history.size();
-        for (int i = 0; i < historySize; i++) {
-            Snapshot snap = t.history.get(i);
-            if (snap.hash != candHash) {
-                continue;
+        // Identical post-change configuration found in the history: reject only when the
+        // very same action (same block, same update context, same flags) produced that
+        // earlier moment; different actions on an identical configuration may still
+        // diverge (§2.3).
+        int moment = t.findMatchingMoment(pos, newId, ctx, flags);
+        if (moment >= 0) {
+            t.addRejected(pos, actionKey);
+            rejectedSetBlocks++;
+            if (SuperkoLog.isDebug()) {
+                SuperkoLog.debug(trace(pos, oldId, newId, ctx, flags, t, "judge: reject (superko, moment #" + moment + ")"));
             }
-            if (!t.matchesSnapshot(snap, pos, newId)) {
-                continue;
-            }
-            // Identical post-change configuration. Reject only when the very same action
-            // (same block, same update context, same flags) produced that earlier moment;
-            // different actions on an identical configuration may still diverge (§2.3).
-            if (snap.actorPos == pos && snap.ctx == ctx && snap.flags == flags) {
-                t.addRejected(pos, actionKey);
-                rejectedSetBlocks++;
-                SuperkoLog.debug(trace(pos, oldId, newId, ctx, flags, t, "judge: reject (superko, moment #" + i + ")"));
-                logReject(t, pos, newId, ctx, flags, i);
-                return true;
-            }
+            logReject(t, pos, newId, ctx, flags, moment);
+            return true;
         }
-        SuperkoLog.debug(trace(pos, oldId, newId, ctx, flags, t, "judge: pass"));
+        if (SuperkoLog.isDebug()) {
+            SuperkoLog.debug(trace(pos, oldId, newId, ctx, flags, t, "judge: pass"));
+        }
         return false;
     }
 
@@ -189,9 +188,12 @@ public final class SuperkoJudge {
             return;
         }
         recordedSetBlocks++;
-        SuperkoLog.debug("[Superko][debug] record (" + unpackX(pos) + ", " + unpackY(pos) + ", " + unpackZ(pos) + ")"
-                + " -> " + newStateId + " ctx=" + SuperkoLog.contextName(ctx) + " flags=" + flags
-                + " during " + t.type.label + " chain (touched=" + t.touched.size() + ", history=" + t.history.size() + ")");
+        if (SuperkoLog.isDebug()) {
+            SuperkoLog.debug("[Superko][debug] record (" + unpackX(pos) + ", " + unpackY(pos) + ", " + unpackZ(pos) + ")"
+                    + " -> " + newStateId + " ctx=" + SuperkoLog.contextName(ctx) + " flags=" + flags
+                    + " during " + t.type.label + " chain (touched=" + t.touched.size()
+                    + ", moments=" + t.momentCount() + ")");
+        }
         t.record(pos, newStateId, ctx, flags);
     }
 

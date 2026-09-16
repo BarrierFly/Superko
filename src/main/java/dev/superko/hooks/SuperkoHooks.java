@@ -48,6 +48,11 @@ public final class SuperkoHooks {
             return false;
         }
         BlockState oldState = level.getBlockState(pos);
+        // BlockState instances are canonical, so identity is the cheapest possible
+        // "no state change" test — and no-ops are common during cascades.
+        if (oldState == newState) {
+            return false;
+        }
         if (SuperkoConfig.isExempt(oldState.getBlock()) || SuperkoConfig.isExempt(newState.getBlock())) {
             return false;
         }

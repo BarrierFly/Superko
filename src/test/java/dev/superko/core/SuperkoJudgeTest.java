@@ -23,9 +23,8 @@ class SuperkoJudgeTest {
     @BeforeEach
     @AfterEach
     void cleanState() {
-        ChainTracker.maxTouched = 4096;
-        ChainTracker.maxHistory = 4096;
-        ChainTracker.maxSnapshotEntries = 1 << 20;
+        ChainTracker.maxTouched = 65536;
+        ChainTracker.maxHistory = 65536;
         SuperkoJudge.enabled = true;
         // force-closes anything a failed test may have left behind, then discards it
         SuperkoJudge.beginChain(ChainType.SCHEDULED_TICK, "cleanup");

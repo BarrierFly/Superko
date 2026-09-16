@@ -29,12 +29,12 @@ After a rejection, further identical attempts from that block in the same chain 
 - **Judgment** happens at the HEAD of `Level.setBlock(BlockPos, BlockState, int, int)` and cancels the call there — a rejected change is written to no chunk and therefore emits no updates at all.
 - **Recording** happens at the `getBlockState(pos)` call vanilla performs right after the chunk write on the success path (before any update dispatch), using a plain composable `@Inject` — no redirects, no conflicts with other mods' `setBlock` hooks. Rejected calls never reach it.
 - **Update contexts** (self / neighbor / shape-face) are tagged on the vanilla updater classes — both the 1.19+ manual stack (`CollectingNeighborUpdater`) and the instant/recursive one (`InstantNeighborUpdater`, also used client-side and by TIS-Addition's `instantBlockUpdaterReintroduced`).
-- **Snapshots** are compared via a Zobrist-style rolling hash first; only on a hash hit is the full map compared. History entries store the action that produced them, which is what makes "same configuration, same action" decidable.
+- **Snapshots** are compared via a Zobrist-style rolling hash first, and every recorded moment is indexed by its hash, so a candidate is matched in O(1) rather than by scanning the chain history. A moment's configuration is reconstructed on demand from per-position write histories, so recording a change costs a few words instead of a full configuration copy. Moments store the action that produced them, which is what makes "same configuration, same action" decidable.
 
 ## Known limitations (read this)
 
 - **Strict rule.** Like in Go, a chain that *ever* revisits a configuration gets clipped, even if it would have diverged one beat later. In rare cases this can stop a contraption that vanilla would have let converge.
-- **Performance caps.** 4096 touched blocks and 4096 snapshots per chain (plus a total snapshot-entry budget); beyond that the rest of the chain is passed through unjudged (with a console warning). Very large loop structures may not be protected, and update-storm-scale chains are beyond this mod.
+- **Performance caps.** 65536 touched blocks and 65536 recorded moments per chain; beyond that the rest of the chain is passed through unjudged (with a console warning). Very large loop structures may still not be protected, and update-storm-scale chains are beyond this mod.
 - A rejected `setBlock` returns `false`, exactly like a failed placement.
 - Only block states are compared; entity changes are not part of the snapshot.
 - `setBlock` calls with no update flags (e.g. structure placement, flags `2|16`) are recorded but never rejected — they cannot cascade.
@@ -117,12 +117,12 @@ Version management is set up with [Stonecutter](https://stonecutter.kikugie.dev/
 - **判定**挂在 `Level.setBlock(BlockPos, BlockState, int, int)` 的 HEAD 并在此取消——被拒绝的改动不会写入任何区块，因此其更新天然不会放出。
 - **记录**挂在原版在区块写入成功之后、更新派发之前的那次 `getBlockState(pos)` 调用上，用的是可叠加的普通 `@Inject`——不用 @Redirect，不会和其它 mod 的 setBlock 钩子冲突；被拒绝的调用根本走不到这里。
 - **更新上下文**（自身逻辑/邻居更新/形状更新含面）打标在原版更新器类上——1.19+ 的手工栈（`CollectingNeighborUpdater`）与即时递归更新器（`InstantNeighborUpdater`，客户端以及 TIS-Addition 的 `instantBlockUpdaterReintroduced` 都在用）两代全覆盖。
-- **快照比较**先用 Zobrist 风格滚动哈希排除，命中才做全量比对；每条历史快照都记录产生它的动作，"同构型 + 同动作"因此可判定。
+- **快照比较**先用 Zobrist 风格滚动哈希排除，且每个时刻都按哈希建索引——候选构型 O(1) 命中，不再线性扫描链内历史；命中后用**每方块写入历史**按需重建该时刻的构型，因此记录一次改动只需几个字，而不是整份构型拷贝。每个时刻都记录产生它的动作，"同构型 + 同动作"因此可判定。
 
 ## 已知限制（务必阅读）
 
 - **严格判定。** 与围棋规则一样：链内只要出现过全同即拒绝该次动作，即使之后本可发散。极端情况下可能干预原版本可正常收敛的装置。
-- **性能上限。** 每条链最多记录 4096 个触及方块与 4096 个快照（另有快照总条目预算）；超限后本链放行不再判定（控制台警告一次）。超大死循环结构可能防不住，更新量极大时本 Mod 自身也可能先出问题。
+- **性能上限。** 每条链最多记录 65536 个触及方块与 65536 个时刻；超限后本链放行不再判定（控制台警告一次）。超大死循环结构仍可能防不住，更新量极大时本 Mod 自身也可能先出问题。
 - 被拒绝的 `setBlock` 返回 `false`，与放置失败的表现一致。
 - 只比较方块状态；实体的创建/移除/更改不进快照。
 - 不带更新 flag 的 `setBlock`（如结构放置，flags `2|16`）只记录、不拒绝——它们无法形成瞬时循环。

@@ -69,6 +69,14 @@ public final class SuperkoLog {
         }
     }
 
+    /**
+     * Guard for callers that would otherwise build the trace string eagerly: string
+     * concatenation is a measurable cost on hot paths like the per-setBlock traces.
+     */
+    public static boolean isDebug() {
+        return logLevel >= LEVEL_DEBUG;
+    }
+
     /** Always shown on the console (cap warnings, etc.). */
     public static void warn(String message) {
         sink.console(message);
