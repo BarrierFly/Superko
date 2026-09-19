@@ -24,7 +24,6 @@ public final class SuperkoHooks {
     private static final class WriteMark {
         boolean judged;
         long pos;
-        int newStateId;
         int flags;
         int ctx;
     }
@@ -49,7 +48,9 @@ public final class SuperkoHooks {
         }
         BlockState oldState = level.getBlockState(pos);
         // BlockState instances are canonical, so identity is the cheapest possible
-        // "no state change" test — and no-ops are common during cascades.
+        // "no state change" test — and no-ops are common during cascades. Keep in sync
+        // with the Q9 guard in SuperkoJudge.beforeSetBlock (both encode "no state change
+        // => not an action"); this layer just skips the subsequent id/exemption lookups.
         if (oldState == newState) {
             return false;
         }
@@ -60,7 +61,6 @@ public final class SuperkoHooks {
         if (!reject) {
             mark.judged = true;
             mark.pos = pos.asLong();
-            mark.newStateId = Block.getId(newState);
             mark.flags = flags;
             mark.ctx = SuperkoJudge.currentContext();
         }
